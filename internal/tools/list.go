@@ -11,6 +11,7 @@ import (
 	"github.com/tektoncd/mcp-server/internal/params"
 	v1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
 	v1beta1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
+	v1beta1informers "github.com/tektoncd/pipeline/pkg/client/informers/externalversions/pipeline/v1beta1"
 	pipelineinformer "github.com/tektoncd/pipeline/pkg/client/injection/informers/pipeline/v1/pipeline"
 	pipelineruninformer "github.com/tektoncd/pipeline/pkg/client/injection/informers/pipeline/v1/pipelinerun"
 	taskinformer "github.com/tektoncd/pipeline/pkg/client/injection/informers/pipeline/v1/task"
@@ -188,11 +189,21 @@ func handlerListStepaction(ctx context.Context, request mcp.CallToolRequest) (*m
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
+	jsonData, err := listStepActionsHelper(stepactionInformer, namespace, lselector, prefix)
+	if err != nil {
+		return mcp.NewToolResultErrorFromErr("Failed to list stepactions", err), nil
+	}
+
+	return mcp.NewToolResultText(jsonData), nil
+}
+
+func listStepActionsHelper(stepactionInformer v1beta1informers.StepActionInformer, namespace, lselector, prefix string) (string, error) {
 	var selector labels.Selector
+	var err error
 	if lselector != "" {
 		selector, err = labels.Parse(lselector)
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			return "", nil
 		}
 	} else {
 		selector = labels.NewSelector()
@@ -204,12 +215,12 @@ func handlerListStepaction(ctx context.Context, request mcp.CallToolRequest) (*m
 		// No namespace, searching all PipelineRuns
 		trs, err = stepactionInformer.Lister().List(selector)
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			return "", err
 		}
 	} else {
 		trs, err = stepactionInformer.Lister().StepActions(namespace).List(selector)
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			return "", err
 		}
 	}
 
@@ -226,10 +237,9 @@ func handlerListStepaction(ctx context.Context, request mcp.CallToolRequest) (*m
 
 	jsonData, err := json.Marshal(trs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal resource to JSON: %w", err)
+		return "", fmt.Errorf("failed to marshal resource to JSON: %w", err)
 	}
-
-	return mcp.NewToolResultText(string(jsonData)), nil
+	return string(jsonData), nil
 }
 
 func listPipelines() server.ServerTool {
