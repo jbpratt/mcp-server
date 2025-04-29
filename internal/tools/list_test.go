@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	v1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
 	v1beta1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	fakepipelineclientset "github.com/tektoncd/pipeline/pkg/client/clientset/versioned/fake"
 	informers "github.com/tektoncd/pipeline/pkg/client/informers/externalversions"
@@ -96,6 +97,96 @@ func TestListStepActions(t *testing.T) {
 			require.NoError(t, err)
 
 			var actualObjs []*v1beta1.StepAction
+			_ = json.Unmarshal([]byte(actual), &actualObjs)
+			require.ElementsMatch(t, tt.output, actualObjs)
+		})
+	}
+}
+
+func TestListTaskruns(t *testing.T) {
+	tests := []struct {
+		name      string
+		namespace string
+		lselector string
+		prefix    string
+		input     []*v1.TaskRun
+		output    []*v1.TaskRun
+	}{
+		{
+			name:      "No namespace, no filters",
+			namespace: "",
+			lselector: "",
+			prefix:    "",
+			input: []*v1.TaskRun{
+				{ObjectMeta: metav1.ObjectMeta{Name: "taskrun1"}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "taskrun2"}},
+			},
+			output: []*v1.TaskRun{
+				{ObjectMeta: metav1.ObjectMeta{Name: "taskrun1"}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "taskrun2"}},
+			},
+		},
+		{
+			name:      "With namespace",
+			namespace: "test-namespace1",
+			lselector: "",
+			prefix:    "",
+			input: []*v1.TaskRun{
+				{ObjectMeta: metav1.ObjectMeta{Name: "taskrun1", Namespace: "test-namespace1"}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "taskrun2", Namespace: "test-namespace2"}},
+			},
+			output: []*v1.TaskRun{
+				{ObjectMeta: metav1.ObjectMeta{Name: "taskrun1", Namespace: "test-namespace1"}},
+			},
+		},
+		{
+			name:      "With label selector",
+			namespace: "",
+			lselector: "key=value",
+			prefix:    "",
+			input: []*v1.TaskRun{
+				{ObjectMeta: metav1.ObjectMeta{Name: "taskrun1", Labels: map[string]string{"key": "value"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "taskrun"}},
+			},
+			output: []*v1.TaskRun{
+				{ObjectMeta: metav1.ObjectMeta{Name: "taskrun1", Labels: map[string]string{"key": "value"}}},
+			},
+		},
+		{
+			name:      "With prefix filter",
+			namespace: "",
+			lselector: "",
+			prefix:    "task",
+			input: []*v1.TaskRun{
+				{ObjectMeta: metav1.ObjectMeta{Name: "taskrun1"}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "otherrun"}},
+			},
+			output: []*v1.TaskRun{
+				{ObjectMeta: metav1.ObjectMeta{Name: "taskrun1"}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fakeClient := fakepipelineclientset.NewSimpleClientset()
+			informer := informers.NewSharedInformerFactory(fakeClient, 0)
+			taskrunInformer := informer.Tekton().V1().TaskRuns()
+
+			for _, item := range tt.input {
+				_, _ = fakeClient.TektonV1().TaskRuns(item.Namespace).Create(t.Context(), item, metav1.CreateOptions{})
+				_ = taskrunInformer.Informer().GetIndexer().Add(item)
+			}
+
+			stopCh := make(chan struct{})
+			defer close(stopCh)
+			informer.Start(stopCh)
+			cache.WaitForCacheSync(stopCh, taskrunInformer.Informer().HasSynced)
+
+			actual, err := listTaskRunsHelper(taskrunInformer, tt.namespace, tt.lselector, tt.prefix)
+			require.NoError(t, err)
+
+			var actualObjs []*v1.TaskRun
 			_ = json.Unmarshal([]byte(actual), &actualObjs)
 			require.ElementsMatch(t, tt.output, actualObjs)
 		})
