@@ -283,11 +283,21 @@ func handlerListPipeline(ctx context.Context, request mcp.CallToolRequest) (*mcp
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
+	jsonData, err := listPipelinesHelper(pipelineInformer, namespace, lselector, prefix)
+	if err != nil {
+		return mcp.NewToolResultErrorFromErr("Failed to list pipelines", err), nil
+	}
+
+	return mcp.NewToolResultText(jsonData), nil
+}
+
+func listPipelinesHelper(pipelineInformer v1informers.PipelineInformer, namespace, lselector, prefix string) (string, error) {
 	var selector labels.Selector
+	var err error
 	if lselector != "" {
 		selector, err = labels.Parse(lselector)
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			return "", err
 		}
 	} else {
 		selector = labels.NewSelector()
@@ -296,19 +306,17 @@ func handlerListPipeline(ctx context.Context, request mcp.CallToolRequest) (*mcp
 	var prs []*v1.Pipeline
 
 	if namespace == "" {
-		// No namespace, searching all Pipelines
 		prs, err = pipelineInformer.Lister().List(selector)
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			return "", err
 		}
 	} else {
 		prs, err = pipelineInformer.Lister().Pipelines(namespace).List(selector)
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			return "", err
 		}
 	}
 
-	// Filter after the fact
 	if prefix != "" {
 		filteredPRs := []*v1.Pipeline{}
 		for _, pr := range prs {
@@ -321,10 +329,9 @@ func handlerListPipeline(ctx context.Context, request mcp.CallToolRequest) (*mcp
 
 	jsonData, err := json.Marshal(prs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal resource to JSON: %w", err)
+		return "", fmt.Errorf("failed to marshal resource to JSON: %w", err)
 	}
-
-	return mcp.NewToolResultText(string(jsonData)), nil
+	return string(jsonData), nil
 }
 
 func listPipelineRuns() server.ServerTool {

@@ -372,3 +372,93 @@ func TestListPipelineruns(t *testing.T) {
 		})
 	}
 }
+
+func TestListPipelines(t *testing.T) {
+	tests := []struct {
+		name      string
+		namespace string
+		lselector string
+		prefix    string
+		input     []*v1.Pipeline
+		output    []*v1.Pipeline
+	}{
+		{
+			name:      "No namespace, no filters",
+			namespace: "",
+			lselector: "",
+			prefix:    "",
+			input: []*v1.Pipeline{
+				{ObjectMeta: metav1.ObjectMeta{Name: "pipeline1"}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "pipeline2"}},
+			},
+			output: []*v1.Pipeline{
+				{ObjectMeta: metav1.ObjectMeta{Name: "pipeline1"}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "pipeline2"}},
+			},
+		},
+		{
+			name:      "With namespace",
+			namespace: "test-namespace1",
+			lselector: "",
+			prefix:    "",
+			input: []*v1.Pipeline{
+				{ObjectMeta: metav1.ObjectMeta{Name: "pipeline1", Namespace: "test-namespace1"}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "pipeline2", Namespace: "test-namespace2"}},
+			},
+			output: []*v1.Pipeline{
+				{ObjectMeta: metav1.ObjectMeta{Name: "pipeline1", Namespace: "test-namespace1"}},
+			},
+		},
+		{
+			name:      "With label selector",
+			namespace: "",
+			lselector: "key=value",
+			prefix:    "",
+			input: []*v1.Pipeline{
+				{ObjectMeta: metav1.ObjectMeta{Name: "pipeline1", Labels: map[string]string{"key": "value"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "pipeline2"}},
+			},
+			output: []*v1.Pipeline{
+				{ObjectMeta: metav1.ObjectMeta{Name: "pipeline1", Labels: map[string]string{"key": "value"}}},
+			},
+		},
+		{
+			name:      "With prefix filter",
+			namespace: "",
+			lselector: "",
+			prefix:    "pipe",
+			input: []*v1.Pipeline{
+				{ObjectMeta: metav1.ObjectMeta{Name: "pipeline1"}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "otherpipeline"}},
+			},
+			output: []*v1.Pipeline{
+				{ObjectMeta: metav1.ObjectMeta{Name: "pipeline1"}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fakeClient := fakepipelineclientset.NewSimpleClientset()
+			informer := informers.NewSharedInformerFactory(fakeClient, 0)
+			pipelineInformer := informer.Tekton().V1().Pipelines()
+
+			for _, item := range tt.input {
+				_, _ = fakeClient.TektonV1().Pipelines(item.Namespace).Create(t.Context(), item, metav1.CreateOptions{})
+				_ = pipelineInformer.Informer().GetIndexer().Add(item)
+			}
+
+			stopCh := make(chan struct{})
+			defer close(stopCh)
+			informer.Start(stopCh)
+			cache.WaitForCacheSync(stopCh, pipelineInformer.Informer().HasSynced)
+
+			actual, err := listPipelinesHelper(pipelineInformer, tt.namespace, tt.lselector, tt.prefix)
+			require.NoError(t, err)
+
+			var actualObjs []*v1.Pipeline
+			_ = json.Unmarshal([]byte(actual), &actualObjs)
+			require.ElementsMatch(t, tt.output, actualObjs)
+		})
+	}
+}
