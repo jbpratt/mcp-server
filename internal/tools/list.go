@@ -347,11 +347,21 @@ func handlerListPipelineRun(ctx context.Context, request mcp.CallToolRequest) (*
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
+	jsonData, err := listPipelineruns(pipelineRunInformer, namespace, lselector, prefix)
+	if err != nil {
+		return mcp.NewToolResultErrorFromErr("Failed to list stepactions", err), nil
+	}
+
+	return mcp.NewToolResultText(string(jsonData)), nil
+}
+
+func listPipelineruns(pipelineRunInformer v1informers.PipelineRunInformer, namespace string, lselector string, prefix string) (string, error) {
 	var selector labels.Selector
+	var err error
 	if lselector != "" {
 		selector, err = labels.Parse(lselector)
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			return "", nil
 		}
 	} else {
 		selector = labels.NewSelector()
@@ -363,12 +373,12 @@ func handlerListPipelineRun(ctx context.Context, request mcp.CallToolRequest) (*
 		// No namespace, searching all PipelineRuns
 		prs, err = pipelineRunInformer.Lister().List(selector)
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			return "", nil
 		}
 	} else {
 		prs, err = pipelineRunInformer.Lister().PipelineRuns(namespace).List(selector)
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			return "", nil
 		}
 	}
 
@@ -385,8 +395,7 @@ func handlerListPipelineRun(ctx context.Context, request mcp.CallToolRequest) (*
 
 	jsonData, err := json.Marshal(prs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal resource to JSON: %w", err)
+		return "", fmt.Errorf("failed to marshal resource to JSON: %w", err)
 	}
-
-	return mcp.NewToolResultText(string(jsonData)), nil
+	return string(jsonData), nil
 }
