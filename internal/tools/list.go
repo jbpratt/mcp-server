@@ -48,11 +48,21 @@ func handlerListTask(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
+	jsonData, err := listTasksHelper(taskInformer, namespace, lselector, prefix)
+	if err != nil {
+		return mcp.NewToolResultErrorFromErr("Failed to list tasks", err), nil
+	}
+
+	return mcp.NewToolResultText(jsonData), nil
+}
+
+func listTasksHelper(taskInformer v1informers.TaskInformer, namespace, lselector, prefix string) (string, error) {
 	var selector labels.Selector
+	var err error
 	if lselector != "" {
 		selector, err = labels.Parse(lselector)
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			return "", err
 		}
 	} else {
 		selector = labels.NewSelector()
@@ -61,19 +71,17 @@ func handlerListTask(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	var trs []*v1.Task
 
 	if namespace == "" {
-		// No namespace, searching all PipelineRuns
 		trs, err = taskInformer.Lister().List(selector)
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			return "", err
 		}
 	} else {
 		trs, err = taskInformer.Lister().Tasks(namespace).List(selector)
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			return "", err
 		}
 	}
 
-	// Filter after the fact
 	if prefix != "" {
 		filteredTRs := []*v1.Task{}
 		for _, pr := range trs {
@@ -86,10 +94,9 @@ func handlerListTask(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 
 	jsonData, err := json.Marshal(trs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal resource to JSON: %w", err)
+		return "", fmt.Errorf("failed to marshal resource to JSON: %w", err)
 	}
-
-	return mcp.NewToolResultText(string(jsonData)), nil
+	return string(jsonData), nil
 }
 
 func listTaskRuns() server.ServerTool {
